@@ -1,138 +1,179 @@
 const express = require('express');
 const cors = require('cors');
-const Database = require('better-sqlite3');
+const initSqlJs = require('sql.js');
+const fs = require('fs');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
-// Inicializar base de datos SQLite
-const db = new Database('mitienda.db');
-db.pragma('journal_mode = WAL');
+const DB_FILE = 'mitienda.db';
+let db;
 
-// Crear tablas si no existen
-db.exec(`
-  CREATE TABLE IF NOT EXISTS tiendas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre TEXT NOT NULL
-  );
+// Inicializar base de datos
+async function initDB() {
+  const SQL = await initSqlJs();
+  if (fs.existsSync(DB_FILE)) {
+    const buffer = fs.readFileSync(DB_FILE);
+    db = new SQL.Database(buffer);
+  } else {
+    db = new SQL.Database();
+  }
+  
+  db.run(`
+    CREATE TABLE IF NOT EXISTS tiendas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS productos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tiendaId INTEGER NOT NULL,
+      nombre TEXT NOT NULL,
+      descripcion TEXT DEFAULT '',
+      precio REAL NOT NULL,
+      seccion TEXT DEFAULT '',
+      rutaImagen TEXT
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS registros_dia (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tiendaId INTEGER NOT NULL,
+      fecha TEXT NOT NULL,
+      hora TEXT NOT NULL,
+      billetes REAL DEFAULT 0,
+      monedas REAL DEFAULT 0,
+      plataforma REAL DEFAULT 0,
+      resta REAL DEFAULT 100,
+      total REAL DEFAULT 0
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS lista_compra (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tiendaId INTEGER NOT NULL,
+      texto TEXT NOT NULL,
+      fechaCreacion INTEGER NOT NULL,
+      ttlHoras INTEGER DEFAULT 24
+    )
+  `);
+  saveDB();
+}
 
-  CREATE TABLE IF NOT EXISTS productos (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tiendaId INTEGER NOT NULL,
-    nombre TEXT NOT NULL,
-    descripcion TEXT DEFAULT '',
-    precio REAL NOT NULL,
-    seccion TEXT DEFAULT '',
-    rutaImagen TEXT,
-    FOREIGN KEY (tiendaId) REFERENCES tiendas(id) ON DELETE CASCADE
-  );
+function saveDB() {
+  const data = db.export();
+  fs.writeFileSync(DB_FILE, Buffer.from(data));
+}
 
-  CREATE TABLE IF NOT EXISTS registros_dia (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tiendaId INTEGER NOT NULL,
-    fecha TEXT NOT NULL,
-    hora TEXT NOT NULL,
-    billetes REAL DEFAULT 0,
-    monedas REAL DEFAULT 0,
-    plataforma REAL DEFAULT 0,
-    resta REAL DEFAULT 100,
-    total REAL DEFAULT 0
-  );
+function queryAll(sql, params = []) {
+  const stmt = db.prepare(sql);
+  stmt.bind(params);
+  const rows = [];
+  while (stmt.step()) {
+    rows.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return rows;
+}
 
-  CREATE TABLE IF NOT EXISTS lista_compra (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tiendaId INTEGER NOT NULL,
-    texto TEXT NOT NULL,
-    fechaCreacion INTEGER NOT NULL,
-    ttlHoras INTEGER DEFAULT 24
-  );
-`);
+function queryRun(sql, params = []) {
+  db.run(sql, params);
+  saveDB();
+  return { lastInsertRowid: db.exec("SELECT last_insert_rowid()")[0]?.values[0][0] || 0 };
+}
 
 // ==================== TIENDAS ====================
 app.get('/tiendas', (req, res) => {
-  const tiendas = db.prepare('SELECT * FROM tiendas ORDER BY nombre').all();
-  res.json(tiendas);
+  res.json(queryAll('SELECT * FROM tiendas ORDER BY nombre'));
 });
 
 app.post('/tiendas', (req, res) => {
   const { nombre } = req.body;
-  const result = db.prepare('INSERT INTO tiendas (nombre) VALUES (?)').run(nombre);
-  res.status(201).json({ id: result.lastInsertRowid });
+  queryRun('INSERT INTO tiendas (nombre) VALUES (?)', [nombre]);
+  res.status(201).json({ ok: true });
 });
 
 app.delete('/tiendas/:id', (req, res) => {
-  db.prepare('DELETE FROM tiendas WHERE id = ?').run(req.params.id);
+  db.run('DELETE FROM tiendas WHERE id = ?', [req.params.id]);
+  db.run('DELETE FROM productos WHERE tiendaId = ?', [req.params.id]);
+  saveDB();
   res.json({ ok: true });
 });
 
 // ==================== PRODUCTOS ====================
 app.get('/productos/:tiendaId', (req, res) => {
-  const productos = db.prepare('SELECT * FROM productos WHERE tiendaId = ? ORDER BY seccion, nombre').all(req.params.tiendaId);
-  res.json(productos);
+  res.json(queryAll('SELECT * FROM productos WHERE tiendaId = ? ORDER BY seccion, nombre', [req.params.tiendaId]));
 });
 
 app.post('/productos', (req, res) => {
   const { tiendaId, nombre, descripcion, precio, seccion, rutaImagen } = req.body;
-  const result = db.prepare(
-    'INSERT INTO productos (tiendaId, nombre, descripcion, precio, seccion, rutaImagen) VALUES (?,?,?,?,?,?)'
-  ).run(tiendaId, nombre, descripcion, precio, seccion, rutaImagen);
-  res.status(201).json({ id: result.lastInsertRowid });
+  queryRun(
+    'INSERT INTO productos (tiendaId, nombre, descripcion, precio, seccion, rutaImagen) VALUES (?,?,?,?,?,?)',
+    [tiendaId, nombre, descripcion || '', precio, seccion || '', rutaImagen || null]
+  );
+  res.status(201).json({ ok: true });
 });
 
 app.put('/productos/:id', (req, res) => {
   const { nombre, descripcion, precio, seccion, rutaImagen } = req.body;
-  db.prepare(
-    'UPDATE productos SET nombre=?, descripcion=?, precio=?, seccion=?, rutaImagen=? WHERE id=?'
-  ).run(nombre, descripcion, precio, seccion, rutaImagen, req.params.id);
+  db.run(
+    'UPDATE productos SET nombre=?, descripcion=?, precio=?, seccion=?, rutaImagen=? WHERE id=?',
+    [nombre, descripcion || '', precio, seccion || '', rutaImagen || null, req.params.id]
+  );
+  saveDB();
   res.json({ ok: true });
 });
 
 app.delete('/productos/:id', (req, res) => {
-  db.prepare('DELETE FROM productos WHERE id = ?').run(req.params.id);
+  db.run('DELETE FROM productos WHERE id = ?', [req.params.id]);
+  saveDB();
   res.json({ ok: true });
 });
 
 // ==================== REGISTROS DÍA ====================
 app.get('/registros/:tiendaId', (req, res) => {
-  const registros = db.prepare('SELECT * FROM registros_dia WHERE tiendaId = ? ORDER BY fecha DESC, hora DESC').all(req.params.tiendaId);
-  res.json(registros);
+  res.json(queryAll('SELECT * FROM registros_dia WHERE tiendaId = ? ORDER BY fecha DESC, hora DESC', [req.params.tiendaId]));
 });
 
 app.post('/registros', (req, res) => {
   const { tiendaId, fecha, hora, billetes, monedas, plataforma, resta, total } = req.body;
-  db.prepare(
-    'INSERT INTO registros_dia (tiendaId, fecha, hora, billetes, monedas, plataforma, resta, total) VALUES (?,?,?,?,?,?,?,?)'
-  ).run(tiendaId, fecha, hora, billetes, monedas, plataforma, resta, total);
+  queryRun(
+    'INSERT INTO registros_dia (tiendaId, fecha, hora, billetes, monedas, plataforma, resta, total) VALUES (?,?,?,?,?,?,?,?)',
+    [tiendaId, fecha, hora, billetes||0, monedas||0, plataforma||0, resta||100, total||0]
+  );
   res.status(201).json({ ok: true });
 });
 
 app.delete('/registros/:id', (req, res) => {
-  db.prepare('DELETE FROM registros_dia WHERE id = ?').run(req.params.id);
+  db.run('DELETE FROM registros_dia WHERE id = ?', [req.params.id]);
+  saveDB();
   res.json({ ok: true });
 });
 
 // ==================== LISTA DE COMPRAS ====================
 app.get('/lista_compras/:tiendaId', (req, res) => {
-  const items = db.prepare('SELECT * FROM lista_compra WHERE tiendaId = ? ORDER BY fechaCreacion DESC').all(req.params.tiendaId);
-  res.json(items);
+  res.json(queryAll('SELECT * FROM lista_compra WHERE tiendaId = ? ORDER BY fechaCreacion DESC', [req.params.tiendaId]));
 });
 
 app.post('/lista_compras', (req, res) => {
   const { tiendaId, texto, fechaCreacion, ttlHoras } = req.body;
-  db.prepare(
-    'INSERT INTO lista_compra (tiendaId, texto, fechaCreacion, ttlHoras) VALUES (?,?,?,?)'
-  ).run(tiendaId, texto, fechaCreacion, ttlHoras);
+  queryRun(
+    'INSERT INTO lista_compra (tiendaId, texto, fechaCreacion, ttlHoras) VALUES (?,?,?,?)',
+    [tiendaId, texto, fechaCreacion, ttlHoras||24]
+  );
   res.status(201).json({ ok: true });
 });
 
 app.delete('/lista_compras/:id', (req, res) => {
-  db.prepare('DELETE FROM lista_compra WHERE id = ?').run(req.params.id);
+  db.run('DELETE FROM lista_compra WHERE id = ?', [req.params.id]);
+  saveDB();
   res.json({ ok: true });
 });
 
-// Puerto de Render o 3000 local
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor corriendo en puerto ${PORT}`);
+// Iniciar
+initDB().then(() => {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => console.log(`Servidor corriendo en puerto ${PORT}`));
 });
