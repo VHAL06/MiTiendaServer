@@ -12,9 +12,9 @@ app.use(express.json({ limit: '10mb' }));
 
 // Configurar Cloudinary (reemplazá con tus datos)
 cloudinary.config({
-  cloud_name: 'TU_CLOUD_NAME',
-  api_key: 'TU_API_KEY',
-  api_secret: 'TU_API_SECRET'
+  cloud_name: 'h6vw8ezm',
+  api_key: '456432475972364',
+  api_secret: 'BunEXNLfZgFNarYWhsaSvuP2xco'
 });
 
 const DB_FILE = 'mitienda.db';
