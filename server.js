@@ -73,6 +73,12 @@ app.post('/login', (req, res) => {
   res.json(usuario);
 });
 
+app.delete('/usuarios/:nombreUsuario', (req, res) => {
+  db.run('DELETE FROM usuarios WHERE nombreUsuario = ?', [req.params.nombreUsuario]);
+  saveDB();
+  res.json({ ok: true });
+});
+
 // ==================== SUBIR IMAGEN ====================
 app.post('/upload', upload.single('imagen'), async (req, res) => {
   try {
