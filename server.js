@@ -10,7 +10,6 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Configurar Cloudinary (reemplazá con tus datos)
 cloudinary.config({
   cloud_name: 'h6vw8ezm',
   api_key: '456432475972364',
@@ -33,6 +32,7 @@ async function initDB() {
   db.run(`CREATE TABLE IF NOT EXISTS productos (id INTEGER PRIMARY KEY AUTOINCREMENT, tiendaId INTEGER NOT NULL, nombre TEXT NOT NULL, descripcion TEXT DEFAULT '', precio REAL NOT NULL, seccion TEXT DEFAULT '', rutaImagen TEXT)`);
   db.run(`CREATE TABLE IF NOT EXISTS registros_dia (id INTEGER PRIMARY KEY AUTOINCREMENT, tiendaId INTEGER NOT NULL, fecha TEXT NOT NULL, hora TEXT NOT NULL, billetes REAL DEFAULT 0, monedas REAL DEFAULT 0, plataforma REAL DEFAULT 0, resta REAL DEFAULT 100, total REAL DEFAULT 0)`);
   db.run(`CREATE TABLE IF NOT EXISTS lista_compra (id INTEGER PRIMARY KEY AUTOINCREMENT, tiendaId INTEGER NOT NULL, texto TEXT NOT NULL, fechaCreacion INTEGER NOT NULL, ttlHoras INTEGER DEFAULT 24)`);
+  db.run(`CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, nombreUsuario TEXT UNIQUE NOT NULL, contrasena TEXT NOT NULL, rol TEXT NOT NULL DEFAULT 'usuario')`);
   saveDB();
 }
 
@@ -55,7 +55,25 @@ function queryRun(sql, params = []) {
   saveDB();
 }
 
-// ==================== SUBIR IMAGEN A CLOUDINARY ====================
+// ==================== USUARIOS ====================
+app.post('/registro', (req, res) => {
+  const { nombreUsuario, contrasena, claveEspecial } = req.body;
+  const existe = queryAll('SELECT id FROM usuarios WHERE nombreUsuario = ?', [nombreUsuario]);
+  if (existe.length > 0) return res.status(400).json({ error: 'El usuario ya existe' });
+  const rol = (claveEspecial === 'C137') ? 'admin' : 'usuario';
+  queryRun('INSERT INTO usuarios (nombreUsuario, contrasena, rol) VALUES (?,?,?)', [nombreUsuario, contrasena, rol]);
+  const nuevo = queryAll('SELECT * FROM usuarios WHERE nombreUsuario = ?', [nombreUsuario])[0];
+  res.status(201).json(nuevo);
+});
+
+app.post('/login', (req, res) => {
+  const { nombreUsuario, contrasena } = req.body;
+  const usuario = queryAll('SELECT * FROM usuarios WHERE nombreUsuario = ? AND contrasena = ?', [nombreUsuario, contrasena])[0];
+  if (!usuario) return res.status(401).json({ error: 'Credenciales inválidas' });
+  res.json(usuario);
+});
+
+// ==================== SUBIR IMAGEN ====================
 app.post('/upload', upload.single('imagen'), async (req, res) => {
   try {
     const result = await cloudinary.uploader.upload(req.file.path, {
@@ -63,7 +81,7 @@ app.post('/upload', upload.single('imagen'), async (req, res) => {
       quality: 'auto',
       fetch_format: 'auto'
     });
-    fs.unlinkSync(req.file.path); // borrar archivo temporal
+    fs.unlinkSync(req.file.path);
     res.json({ url: result.secure_url });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -71,15 +89,11 @@ app.post('/upload', upload.single('imagen'), async (req, res) => {
 });
 
 // ==================== TIENDAS ====================
-app.get('/tiendas', (req, res) => {
-  res.json(queryAll('SELECT * FROM tiendas ORDER BY nombre'));
-});
-
+app.get('/tiendas', (req, res) => res.json(queryAll('SELECT * FROM tiendas ORDER BY nombre')));
 app.post('/tiendas', (req, res) => {
   queryRun('INSERT INTO tiendas (nombre) VALUES (?)', [req.body.nombre]);
   res.status(201).json({ ok: true });
 });
-
 app.delete('/tiendas/:id', (req, res) => {
   db.run('DELETE FROM tiendas WHERE id = ?', [req.params.id]);
   db.run('DELETE FROM productos WHERE tiendaId = ?', [req.params.id]);
@@ -91,14 +105,12 @@ app.delete('/tiendas/:id', (req, res) => {
 app.get('/productos/:tiendaId', (req, res) => {
   res.json(queryAll('SELECT * FROM productos WHERE tiendaId = ? ORDER BY seccion, nombre', [req.params.tiendaId]));
 });
-
 app.post('/productos', (req, res) => {
   const { tiendaId, nombre, descripcion, precio, seccion, rutaImagen } = req.body;
   queryRun('INSERT INTO productos (tiendaId, nombre, descripcion, precio, seccion, rutaImagen) VALUES (?,?,?,?,?,?)',
     [tiendaId, nombre, descripcion||'', precio, seccion||'', rutaImagen||null]);
   res.status(201).json({ ok: true });
 });
-
 app.put('/productos/:id', (req, res) => {
   const { nombre, descripcion, precio, seccion, rutaImagen } = req.body;
   db.run('UPDATE productos SET nombre=?, descripcion=?, precio=?, seccion=?, rutaImagen=? WHERE id=?',
@@ -106,7 +118,6 @@ app.put('/productos/:id', (req, res) => {
   saveDB();
   res.json({ ok: true });
 });
-
 app.delete('/productos/:id', (req, res) => {
   db.run('DELETE FROM productos WHERE id = ?', [req.params.id]);
   saveDB();
@@ -117,14 +128,12 @@ app.delete('/productos/:id', (req, res) => {
 app.get('/registros/:tiendaId', (req, res) => {
   res.json(queryAll('SELECT * FROM registros_dia WHERE tiendaId = ? ORDER BY fecha DESC, hora DESC', [req.params.tiendaId]));
 });
-
 app.post('/registros', (req, res) => {
   const { tiendaId, fecha, hora, billetes, monedas, plataforma, resta, total } = req.body;
   queryRun('INSERT INTO registros_dia (tiendaId, fecha, hora, billetes, monedas, plataforma, resta, total) VALUES (?,?,?,?,?,?,?,?)',
     [tiendaId, fecha, hora, billetes||0, monedas||0, plataforma||0, resta||100, total||0]);
   res.status(201).json({ ok: true });
 });
-
 app.delete('/registros/:id', (req, res) => {
   db.run('DELETE FROM registros_dia WHERE id = ?', [req.params.id]);
   saveDB();
@@ -135,14 +144,12 @@ app.delete('/registros/:id', (req, res) => {
 app.get('/lista_compras/:tiendaId', (req, res) => {
   res.json(queryAll('SELECT * FROM lista_compra WHERE tiendaId = ? ORDER BY fechaCreacion DESC', [req.params.tiendaId]));
 });
-
 app.post('/lista_compras', (req, res) => {
   const { tiendaId, texto, fechaCreacion, ttlHoras } = req.body;
   queryRun('INSERT INTO lista_compra (tiendaId, texto, fechaCreacion, ttlHoras) VALUES (?,?,?,?)',
     [tiendaId, texto, fechaCreacion, ttlHoras||24]);
   res.status(201).json({ ok: true });
 });
-
 app.delete('/lista_compras/:id', (req, res) => {
   db.run('DELETE FROM lista_compra WHERE id = ?', [req.params.id]);
   saveDB();
