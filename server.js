@@ -11,19 +11,16 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Configurar Cloudinary
 cloudinary.config({
   cloud_name: 'h6vw8ezm',
   api_key: '456432475972364',
   api_secret: 'BunEXNLfZgFNarYWhsaSvuP2xco'
 });
 
-// Base de datos persistente en disco
 const DB_FILE = path.join(__dirname, 'mitienda.db');
 const db = new Database(DB_FILE);
 db.pragma('journal_mode = WAL');
 
-// Crear tablas si no existen
 db.exec(`
   CREATE TABLE IF NOT EXISTS tiendas (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS productos (id INTEGER PRIMARY KEY AUTOINCREMENT, tiendaId INTEGER NOT NULL, nombre TEXT NOT NULL, descripcion TEXT DEFAULT '', precio REAL NOT NULL, seccion TEXT DEFAULT '', rutaImagen TEXT);
@@ -32,10 +29,14 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, nombreUsuario TEXT UNIQUE NOT NULL, contrasena TEXT NOT NULL, rol TEXT NOT NULL DEFAULT 'usuario');
 `);
 
-// Ping para despertar rápido
+// Insertar usuarios por defecto si no existen
+const insertarSiNoExiste = db.prepare('INSERT OR IGNORE INTO usuarios (nombreUsuario, contrasena, rol) VALUES (?, ?, ?)');
+insertarSiNoExiste.run('Delia', '1982', 'admin');
+insertarSiNoExiste.run('Victor', '2003', 'admin');
+insertarSiNoExiste.run('usuario', '2026', 'usuario');
+
 app.get('/ping', (req, res) => res.json({ ok: true }));
 
-// Usuarios
 app.post('/registro', (req, res) => {
   const { nombreUsuario, contrasena, claveEspecial } = req.body;
   const existe = db.prepare('SELECT id FROM usuarios WHERE nombreUsuario = ?').get(nombreUsuario);
@@ -58,14 +59,9 @@ app.delete('/usuarios/:nombreUsuario', (req, res) => {
   res.json({ ok: true });
 });
 
-// Subir imagen a Cloudinary
 app.post('/upload', upload.single('imagen'), async (req, res) => {
   try {
-    const result = await cloudinary.uploader.upload(req.file.path, {
-      folder: 'productos',
-      quality: 'auto',
-      fetch_format: 'auto'
-    });
+    const result = await cloudinary.uploader.upload(req.file.path, { folder: 'productos', quality: 'auto', fetch_format: 'auto' });
     fs.unlinkSync(req.file.path);
     res.json({ url: result.secure_url });
   } catch (err) {
@@ -73,7 +69,6 @@ app.post('/upload', upload.single('imagen'), async (req, res) => {
   }
 });
 
-// Tiendas
 app.get('/tiendas', (req, res) => res.json(db.prepare('SELECT * FROM tiendas ORDER BY nombre').all()));
 app.post('/tiendas', (req, res) => {
   db.prepare('INSERT INTO tiendas (nombre) VALUES (?)').run(req.body.nombre);
@@ -85,7 +80,6 @@ app.delete('/tiendas/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// Productos
 app.get('/productos/:tiendaId', (req, res) => {
   res.json(db.prepare('SELECT * FROM productos WHERE tiendaId = ? ORDER BY seccion, nombre').all(req.params.tiendaId));
 });
@@ -115,7 +109,6 @@ app.delete('/productos/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Registros del día
 app.get('/registros/:tiendaId', (req, res) => {
   res.json(db.prepare('SELECT * FROM registros_dia WHERE tiendaId = ? ORDER BY fecha DESC, hora DESC').all(req.params.tiendaId));
 });
@@ -130,7 +123,6 @@ app.delete('/registros/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// Lista de compras
 app.get('/lista_compras/:tiendaId', (req, res) => {
   res.json(db.prepare('SELECT * FROM lista_compra WHERE tiendaId = ? ORDER BY fechaCreacion DESC').all(req.params.tiendaId));
 });
