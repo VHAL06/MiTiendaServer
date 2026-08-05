@@ -18,18 +18,25 @@ cloudinary.config({
 });
 
 const DB_FILE = path.join(__dirname, 'mitienda.db');
+
+// Borrar base de datos vieja para empezar limpio
+if (fs.existsSync(DB_FILE)) {
+  fs.unlinkSync(DB_FILE);
+}
+
 const db = new Database(DB_FILE);
 db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS tiendas (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL);
-  CREATE TABLE IF NOT EXISTS productos (id INTEGER PRIMARY KEY AUTOINCREMENT, tiendaId INTEGER NOT NULL, nombre TEXT NOT NULL, descripcion TEXT DEFAULT '', precio REAL NOT NULL, seccion TEXT DEFAULT '', rutaImagen TEXT);
+  CREATE TABLE IF NOT EXISTS productos (id INTEGER PRIMARY KEY AUTOINCREMENT, tiendaId INTEGER NOT NULL REFERENCES tiendas(id) ON DELETE CASCADE, nombre TEXT NOT NULL, descripcion TEXT DEFAULT '', precio REAL NOT NULL, seccion TEXT DEFAULT '', rutaImagen TEXT);
   CREATE TABLE IF NOT EXISTS registros_dia (id INTEGER PRIMARY KEY AUTOINCREMENT, tiendaId INTEGER NOT NULL, fecha TEXT NOT NULL, hora TEXT NOT NULL, billetes REAL DEFAULT 0, monedas REAL DEFAULT 0, plataforma REAL DEFAULT 0, resta REAL DEFAULT 100, total REAL DEFAULT 0);
   CREATE TABLE IF NOT EXISTS lista_compra (id INTEGER PRIMARY KEY AUTOINCREMENT, tiendaId INTEGER NOT NULL, texto TEXT NOT NULL, fechaCreacion INTEGER NOT NULL, ttlHoras INTEGER DEFAULT 24);
   CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, nombreUsuario TEXT UNIQUE NOT NULL, contrasena TEXT NOT NULL, rol TEXT NOT NULL DEFAULT 'usuario');
 `);
 
-// Insertar usuarios por defecto si no existen
+// Insertar usuarios por defecto
 const insertarSiNoExiste = db.prepare('INSERT OR IGNORE INTO usuarios (nombreUsuario, contrasena, rol) VALUES (?, ?, ?)');
 insertarSiNoExiste.run('Delia', '1982', 'admin');
 insertarSiNoExiste.run('Victor', '2003', 'admin');
@@ -37,6 +44,7 @@ insertarSiNoExiste.run('usuario', '2026', 'usuario');
 
 app.get('/ping', (req, res) => res.json({ ok: true }));
 
+// Usuarios
 app.post('/registro', (req, res) => {
   const { nombreUsuario, contrasena, claveEspecial } = req.body;
   const existe = db.prepare('SELECT id FROM usuarios WHERE nombreUsuario = ?').get(nombreUsuario);
@@ -59,6 +67,7 @@ app.delete('/usuarios/:nombreUsuario', (req, res) => {
   res.json({ ok: true });
 });
 
+// Upload imagen
 app.post('/upload', upload.single('imagen'), async (req, res) => {
   try {
     const result = await cloudinary.uploader.upload(req.file.path, { folder: 'productos', quality: 'auto', fetch_format: 'auto' });
@@ -69,17 +78,28 @@ app.post('/upload', upload.single('imagen'), async (req, res) => {
   }
 });
 
+// Tiendas
 app.get('/tiendas', (req, res) => res.json(db.prepare('SELECT * FROM tiendas ORDER BY nombre').all()));
+
 app.post('/tiendas', (req, res) => {
-  db.prepare('INSERT INTO tiendas (nombre) VALUES (?)').run(req.body.nombre);
-  res.status(201).json({ ok: true });
+  const result = db.prepare('INSERT INTO tiendas (nombre) VALUES (?)').run(req.body.nombre);
+  res.status(201).json({ id: result.lastInsertRowid, nombre: req.body.nombre });
 });
-app.delete('/tiendas/:id', (req, res) => {
-  db.prepare('DELETE FROM tiendas WHERE id = ?').run(req.params.id);
-  db.prepare('DELETE FROM productos WHERE tiendaId = ?').run(req.params.id);
+
+app.put('/tiendas/:id', (req, res) => {
+  db.prepare('UPDATE tiendas SET nombre = ? WHERE id = ?').run(req.body.nombre, req.params.id);
   res.json({ ok: true });
 });
 
+app.delete('/tiendas/:id', (req, res) => {
+  db.prepare('DELETE FROM productos WHERE tiendaId = ?').run(req.params.id);
+  db.prepare('DELETE FROM registros_dia WHERE tiendaId = ?').run(req.params.id);
+  db.prepare('DELETE FROM lista_compra WHERE tiendaId = ?').run(req.params.id);
+  db.prepare('DELETE FROM tiendas WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// Productos
 app.get('/productos/:tiendaId', (req, res) => {
   res.json(db.prepare('SELECT * FROM productos WHERE tiendaId = ? ORDER BY seccion, nombre').all(req.params.tiendaId));
 });
@@ -109,6 +129,7 @@ app.delete('/productos/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Registros
 app.get('/registros/:tiendaId', (req, res) => {
   res.json(db.prepare('SELECT * FROM registros_dia WHERE tiendaId = ? ORDER BY fecha DESC, hora DESC').all(req.params.tiendaId));
 });
@@ -123,6 +144,7 @@ app.delete('/registros/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// Lista compras
 app.get('/lista_compras/:tiendaId', (req, res) => {
   res.json(db.prepare('SELECT * FROM lista_compra WHERE tiendaId = ? ORDER BY fechaCreacion DESC').all(req.params.tiendaId));
 });
