@@ -105,12 +105,14 @@ app.delete('/tiendas/:id', (req, res) => {
 app.get('/productos/:tiendaId', (req, res) => {
   res.json(queryAll('SELECT * FROM productos WHERE tiendaId = ? ORDER BY seccion, nombre', [req.params.tiendaId]));
 });
+
 app.post('/productos', (req, res) => {
   const { tiendaId, nombre, descripcion, precio, seccion, rutaImagen } = req.body;
   queryRun('INSERT INTO productos (tiendaId, nombre, descripcion, precio, seccion, rutaImagen) VALUES (?,?,?,?,?,?)',
     [tiendaId, nombre, descripcion||'', precio, seccion||'', rutaImagen||null]);
   res.status(201).json({ ok: true });
 });
+
 app.put('/productos/:id', (req, res) => {
   const { nombre, descripcion, precio, seccion, rutaImagen } = req.body;
   db.run('UPDATE productos SET nombre=?, descripcion=?, precio=?, seccion=?, rutaImagen=? WHERE id=?',
@@ -118,7 +120,21 @@ app.put('/productos/:id', (req, res) => {
   saveDB();
   res.json({ ok: true });
 });
-app.delete('/productos/:id', (req, res) => {
+
+app.delete('/productos/:id', async (req, res) => {
+  const producto = queryAll('SELECT * FROM productos WHERE id = ?', [req.params.id])[0];
+  
+  if (producto && producto.rutaImagen && producto.rutaImagen.includes('cloudinary')) {
+    try {
+      const urlPartes = producto.rutaImagen.split('/');
+      const nombreConExtension = urlPartes[urlPartes.length - 1];
+      const publicId = `productos/${nombreConExtension.split('.')[0]}`;
+      await cloudinary.uploader.destroy(publicId);
+    } catch (err) {
+      console.log('Error al borrar imagen:', err.message);
+    }
+  }
+  
   db.run('DELETE FROM productos WHERE id = ?', [req.params.id]);
   saveDB();
   res.json({ ok: true });
