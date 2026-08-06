@@ -25,15 +25,47 @@ const pool = new Pool({
 const initDB = async () => {
   try {
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS tiendas (id VARCHAR(36) PRIMARY KEY, nombre TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS tiendas (
+        id VARCHAR(36) PRIMARY KEY,
+        nombre TEXT NOT NULL
+      );
       
-      CREATE TABLE IF NOT EXISTS productos (id VARCHAR(36) PRIMARY KEY, tiendaId VARCHAR(36) NOT NULL REFERENCES tiendas(id) ON DELETE CASCADE, nombre TEXT NOT NULL, descripcion TEXT DEFAULT '', precio REAL NOT NULL, seccion TEXT DEFAULT '', rutaImagen TEXT);
+      CREATE TABLE IF NOT EXISTS productos (
+        id VARCHAR(36) PRIMARY KEY,
+        tiendaId VARCHAR(36) NOT NULL REFERENCES tiendas(id) ON DELETE CASCADE,
+        nombre TEXT NOT NULL,
+        descripcion TEXT DEFAULT '',
+        precio REAL NOT NULL,
+        seccion TEXT DEFAULT '',
+        rutaImagen TEXT
+      );
       
-      CREATE TABLE IF NOT EXISTS registros_dia (id VARCHAR(36) PRIMARY KEY, tiendaId VARCHAR(36) NOT NULL, fecha TEXT NOT NULL, hora TEXT NOT NULL, billetes REAL DEFAULT 0, monedas REAL DEFAULT 0, plataforma REAL DEFAULT 0, resta REAL DEFAULT 100, total REAL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS registros_dia (
+        id VARCHAR(36) PRIMARY KEY,
+        tiendaId VARCHAR(36) NOT NULL,
+        fecha TEXT NOT NULL,
+        hora TEXT NOT NULL,
+        billetes REAL DEFAULT 0,
+        monedas REAL DEFAULT 0,
+        plataforma REAL DEFAULT 0,
+        resta REAL DEFAULT 100,
+        total REAL DEFAULT 0
+      );
       
-      CREATE TABLE IF NOT EXISTS lista_compra (id VARCHAR(36) PRIMARY KEY, tiendaId VARCHAR(36) NOT NULL, texto TEXT NOT NULL, fechaCreacion BIGINT NOT NULL, ttlHoras INTEGER DEFAULT 24);
+      CREATE TABLE IF NOT EXISTS lista_compra (
+        id VARCHAR(36) PRIMARY KEY,
+        tiendaId VARCHAR(36) NOT NULL,
+        texto TEXT NOT NULL,
+        fechaCreacion BIGINT NOT NULL,
+        ttlHoras INTEGER DEFAULT 24
+      );
       
-      CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nombreUsuario TEXT UNIQUE NOT NULL, contrasena TEXT NOT NULL, rol TEXT NOT NULL DEFAULT 'usuario');
+      CREATE TABLE IF NOT EXISTS usuarios (
+        id SERIAL PRIMARY KEY,
+        nombreUsuario TEXT UNIQUE NOT NULL,
+        contrasena TEXT NOT NULL,
+        rol TEXT NOT NULL DEFAULT 'usuario'
+      );
     `);
 
     await pool.query(`
@@ -49,20 +81,52 @@ const initDB = async () => {
 
 initDB();
 
+// --- PING ---
 app.get('/ping', (req, res) => res.json({ ok: true }));
 
 // --- USUARIOS ---
 app.post('/login', async (req, res) => {
   const { nombreUsuario, contrasena } = req.body;
-  const result = await pool.query('SELECT * FROM usuarios WHERE nombreUsuario = $1 AND contrasena = $2', [nombreUsuario, contrasena]);
+  const result = await pool.query(
+    'SELECT * FROM usuarios WHERE nombreUsuario = $1 AND contrasena = $2',
+    [nombreUsuario, contrasena]
+  );
   if (result.rows.length === 0) return res.status(401).json({ error: 'Credenciales inválidas' });
   res.json(result.rows[0]);
+});
+
+app.post('/registro', async (req, res) => {
+  const { nombreUsuario, contrasena, claveEspecial } = req.body;
+  const rol = (claveEspecial === 'C137') ? 'admin' : 'usuario';
+  try {
+    await pool.query(
+      'INSERT INTO usuarios (nombreUsuario, contrasena, rol) VALUES ($1, $2, $3)',
+      [nombreUsuario, contrasena, rol]
+    );
+    // Devolver el usuario creado
+    const result = await pool.query(
+      'SELECT * FROM usuarios WHERE nombreUsuario = $1',
+      [nombreUsuario]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(400).json({ error: 'Usuario ya existe' });
+  }
+});
+
+app.delete('/usuarios/:nombreUsuario', async (req, res) => {
+  await pool.query('DELETE FROM usuarios WHERE nombreUsuario = $1', [req.params.nombreUsuario]);
+  res.json({ ok: true });
 });
 
 // --- UPLOAD IMAGEN ---
 app.post('/upload', upload.single('imagen'), async (req, res) => {
   try {
-    const result = await cloudinary.uploader.upload(req.file.path, { folder: 'productos', quality: 'auto', fetch_format: 'auto' });
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      folder: 'productos',
+      quality: 'auto',
+      fetch_format: 'auto'
+    });
     fs.unlinkSync(req.file.path);
     res.json({ url: result.secure_url });
   } catch (err) {
@@ -76,33 +140,64 @@ app.get('/tiendas', async (req, res) => {
   res.json(result.rows);
 });
 
-// Ahora el ID lo manda el celular (ya creado)
 app.post('/tiendas', async (req, res) => {
   const { id, nombre } = req.body;
-  await pool.query('INSERT INTO tiendas (id, nombre) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET nombre = EXCLUDED.nombre', [id, nombre]);
+  await pool.query(
+    'INSERT INTO tiendas (id, nombre) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET nombre = EXCLUDED.nombre',
+    [id, nombre]
+  );
   res.status(201).json({ id, nombre });
+});
+
+app.delete('/tiendas/:id', async (req, res) => {
+  const { id } = req.params;
+  // En cascada se eliminarán productos, registros y lista por las FK
+  await pool.query('DELETE FROM tiendas WHERE id = $1', [id]);
+  res.json({ ok: true });
 });
 
 // --- PRODUCTOS ---
 app.get('/productos/:tiendaId', async (req, res) => {
-  const result = await pool.query('SELECT * FROM productos WHERE tiendaId = $1 ORDER BY seccion, nombre', [req.params.tiendaId]);
+  const result = await pool.query(
+    'SELECT * FROM productos WHERE tiendaId = $1 ORDER BY seccion, nombre',
+    [req.params.tiendaId]
+  );
   res.json(result.rows);
 });
 
 app.post('/productos', async (req, res) => {
   const { id, tiendaId, nombre, descripcion, precio, seccion, rutaImagen } = req.body;
   await pool.query(
-    'INSERT INTO productos (id, tiendaId, nombre, descripcion, precio, seccion, rutaImagen) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET nombre=EXCLUDED.nombre, descripcion=EXCLUDED.descripcion, precio=EXCLUDED.precio, seccion=EXCLUDED.seccion, rutaImagen=EXCLUDED.rutaImagen', 
+    `INSERT INTO productos (id, tiendaId, nombre, descripcion, precio, seccion, rutaImagen)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (id) DO UPDATE SET
+       nombre = EXCLUDED.nombre,
+       descripcion = EXCLUDED.descripcion,
+       precio = EXCLUDED.precio,
+       seccion = EXCLUDED.seccion,
+       rutaImagen = EXCLUDED.rutaImagen`,
     [id, tiendaId, nombre, descripcion || '', precio, seccion || '', rutaImagen || null]
   );
   res.status(201).json({ ok: true });
 });
 
+app.put('/productos/:id', async (req, res) => {
+  const { id } = req.params;
+  const { tiendaId, nombre, descripcion, precio, seccion, rutaImagen } = req.body;
+  await pool.query(
+    `UPDATE productos SET
+       tiendaId = $2, nombre = $3, descripcion = $4, precio = $5, seccion = $6, rutaImagen = $7
+     WHERE id = $1`,
+    [id, tiendaId, nombre, descripcion || '', precio, seccion || '', rutaImagen || null]
+  );
+  res.json({ ok: true });
+});
+
 app.delete('/productos/:id', async (req, res) => {
   const { id } = req.params;
+  // Eliminar imagen de Cloudinary si existe
   const result = await pool.query('SELECT * FROM productos WHERE id = $1', [id]);
   const producto = result.rows[0];
-  
   if (producto && producto.rutaimagen && producto.rutaimagen.includes('cloudinary')) {
     try {
       const urlPartes = producto.rutaimagen.split('/');
@@ -115,5 +210,65 @@ app.delete('/productos/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+// --- REGISTROS DÍA ---
+app.get('/registros/:tiendaId', async (req, res) => {
+  const result = await pool.query(
+    'SELECT * FROM registros_dia WHERE tiendaId = $1 ORDER BY fecha DESC, hora DESC',
+    [req.params.tiendaId]
+  );
+  res.json(result.rows);
+});
+
+app.post('/registros', async (req, res) => {
+  const { id, tiendaId, fecha, hora, billetes, monedas, plataforma, resta, total } = req.body;
+  await pool.query(
+    `INSERT INTO registros_dia (id, tiendaId, fecha, hora, billetes, monedas, plataforma, resta, total)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     ON CONFLICT (id) DO UPDATE SET
+       fecha = EXCLUDED.fecha,
+       hora = EXCLUDED.hora,
+       billetes = EXCLUDED.billetes,
+       monedas = EXCLUDED.monedas,
+       plataforma = EXCLUDED.plataforma,
+       resta = EXCLUDED.resta,
+       total = EXCLUDED.total`,
+    [id, tiendaId, fecha, hora, billetes || 0, monedas || 0, plataforma || 0, resta || 100, total || 0]
+  );
+  res.status(201).json({ ok: true });
+});
+
+app.delete('/registros/:id', async (req, res) => {
+  await pool.query('DELETE FROM registros_dia WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// --- LISTA DE COMPRAS ---
+app.get('/lista_compras/:tiendaId', async (req, res) => {
+  const result = await pool.query(
+    'SELECT * FROM lista_compra WHERE tiendaId = $1 ORDER BY fechaCreacion DESC',
+    [req.params.tiendaId]
+  );
+  res.json(result.rows);
+});
+
+app.post('/lista_compras', async (req, res) => {
+  const { id, tiendaId, texto, fechaCreacion, ttlHoras } = req.body;
+  await pool.query(
+    `INSERT INTO lista_compra (id, tiendaId, texto, fechaCreacion, ttlHoras)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (id) DO UPDATE SET
+       texto = EXCLUDED.texto,
+       ttlHoras = EXCLUDED.ttlHoras`,
+    [id, tiendaId, texto, fechaCreacion, ttlHoras || 24]
+  );
+  res.status(201).json({ ok: true });
+});
+
+app.delete('/lista_compras/:id', async (req, res) => {
+  await pool.query('DELETE FROM lista_compra WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// --- INICIO DEL SERVIDOR ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Servidor en puerto ' + PORT));
