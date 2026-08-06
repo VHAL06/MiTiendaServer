@@ -1,10 +1,9 @@
 const express = require('express');
 const cors = require('cors');
-const Database = require('better-sqlite3');
+const { Pool } = require('pg');
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
-const path = require('path');
 const fs = require('fs');
 
 const app = express();
@@ -17,57 +16,50 @@ cloudinary.config({
   api_secret: 'BunEXNLfZgFNarYWhsaSvuP2xco'
 });
 
-const DB_FILE = path.join(__dirname, 'mitienda.db');
+const DB_URL = "postgresql://neondb_owner:npg_ewJ89mLRtWIY@ep-empty-bread-af421lyh.c-2.us-west-2.aws.neon.tech/neondb?sslmode=require";
 
-// Borrar base de datos vieja para empezar limpio
-if (fs.existsSync(DB_FILE)) {
-  fs.unlinkSync(DB_FILE);
-}
+const pool = new Pool({
+  connectionString: DB_URL,
+});
 
-const db = new Database(DB_FILE);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const initDB = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tiendas (id VARCHAR(36) PRIMARY KEY, nombre TEXT NOT NULL);
+      
+      CREATE TABLE IF NOT EXISTS productos (id VARCHAR(36) PRIMARY KEY, tiendaId VARCHAR(36) NOT NULL REFERENCES tiendas(id) ON DELETE CASCADE, nombre TEXT NOT NULL, descripcion TEXT DEFAULT '', precio REAL NOT NULL, seccion TEXT DEFAULT '', rutaImagen TEXT);
+      
+      CREATE TABLE IF NOT EXISTS registros_dia (id VARCHAR(36) PRIMARY KEY, tiendaId VARCHAR(36) NOT NULL, fecha TEXT NOT NULL, hora TEXT NOT NULL, billetes REAL DEFAULT 0, monedas REAL DEFAULT 0, plataforma REAL DEFAULT 0, resta REAL DEFAULT 100, total REAL DEFAULT 0);
+      
+      CREATE TABLE IF NOT EXISTS lista_compra (id VARCHAR(36) PRIMARY KEY, tiendaId VARCHAR(36) NOT NULL, texto TEXT NOT NULL, fechaCreacion BIGINT NOT NULL, ttlHoras INTEGER DEFAULT 24);
+      
+      CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nombreUsuario TEXT UNIQUE NOT NULL, contrasena TEXT NOT NULL, rol TEXT NOT NULL DEFAULT 'usuario');
+    `);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS tiendas (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL);
-  CREATE TABLE IF NOT EXISTS productos (id INTEGER PRIMARY KEY AUTOINCREMENT, tiendaId INTEGER NOT NULL REFERENCES tiendas(id) ON DELETE CASCADE, nombre TEXT NOT NULL, descripcion TEXT DEFAULT '', precio REAL NOT NULL, seccion TEXT DEFAULT '', rutaImagen TEXT);
-  CREATE TABLE IF NOT EXISTS registros_dia (id INTEGER PRIMARY KEY AUTOINCREMENT, tiendaId INTEGER NOT NULL, fecha TEXT NOT NULL, hora TEXT NOT NULL, billetes REAL DEFAULT 0, monedas REAL DEFAULT 0, plataforma REAL DEFAULT 0, resta REAL DEFAULT 100, total REAL DEFAULT 0);
-  CREATE TABLE IF NOT EXISTS lista_compra (id INTEGER PRIMARY KEY AUTOINCREMENT, tiendaId INTEGER NOT NULL, texto TEXT NOT NULL, fechaCreacion INTEGER NOT NULL, ttlHoras INTEGER DEFAULT 24);
-  CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, nombreUsuario TEXT UNIQUE NOT NULL, contrasena TEXT NOT NULL, rol TEXT NOT NULL DEFAULT 'usuario');
-`);
+    await pool.query(`
+      INSERT INTO usuarios (nombreUsuario, contrasena, rol) 
+      VALUES ('Delia', '1982', 'admin'), ('Victor', '2003', 'admin'), ('usuario', '2026', 'usuario') 
+      ON CONFLICT (nombreUsuario) DO NOTHING;
+    `);
+    console.log("Base de datos inicializada correctamente");
+  } catch (err) {
+    console.error("Error iniciando DB:", err);
+  }
+};
 
-// Insertar usuarios por defecto
-const insertarSiNoExiste = db.prepare('INSERT OR IGNORE INTO usuarios (nombreUsuario, contrasena, rol) VALUES (?, ?, ?)');
-insertarSiNoExiste.run('Delia', '1982', 'admin');
-insertarSiNoExiste.run('Victor', '2003', 'admin');
-insertarSiNoExiste.run('usuario', '2026', 'usuario');
+initDB();
 
 app.get('/ping', (req, res) => res.json({ ok: true }));
 
-// Usuarios
-app.post('/registro', (req, res) => {
-  const { nombreUsuario, contrasena, claveEspecial } = req.body;
-  const existe = db.prepare('SELECT id FROM usuarios WHERE nombreUsuario = ?').get(nombreUsuario);
-  if (existe) return res.status(400).json({ error: 'El usuario ya existe' });
-  const rol = (claveEspecial === 'C137') ? 'admin' : 'usuario';
-  db.prepare('INSERT INTO usuarios (nombreUsuario, contrasena, rol) VALUES (?,?,?)').run(nombreUsuario, contrasena, rol);
-  const nuevo = db.prepare('SELECT * FROM usuarios WHERE nombreUsuario = ?').get(nombreUsuario);
-  res.status(201).json(nuevo);
-});
-
-app.post('/login', (req, res) => {
+// --- USUARIOS ---
+app.post('/login', async (req, res) => {
   const { nombreUsuario, contrasena } = req.body;
-  const usuario = db.prepare('SELECT * FROM usuarios WHERE nombreUsuario = ? AND contrasena = ?').get(nombreUsuario, contrasena);
-  if (!usuario) return res.status(401).json({ error: 'Credenciales inválidas' });
-  res.json(usuario);
+  const result = await pool.query('SELECT * FROM usuarios WHERE nombreUsuario = $1 AND contrasena = $2', [nombreUsuario, contrasena]);
+  if (result.rows.length === 0) return res.status(401).json({ error: 'Credenciales inválidas' });
+  res.json(result.rows[0]);
 });
 
-app.delete('/usuarios/:nombreUsuario', (req, res) => {
-  db.prepare('DELETE FROM usuarios WHERE nombreUsuario = ?').run(req.params.nombreUsuario);
-  res.json({ ok: true });
-});
-
-// Upload imagen
+// --- UPLOAD IMAGEN ---
 app.post('/upload', upload.single('imagen'), async (req, res) => {
   try {
     const result = await cloudinary.uploader.upload(req.file.path, { folder: 'productos', quality: 'auto', fetch_format: 'auto' });
@@ -78,84 +70,48 @@ app.post('/upload', upload.single('imagen'), async (req, res) => {
   }
 });
 
-// Tiendas
-app.get('/tiendas', (req, res) => res.json(db.prepare('SELECT * FROM tiendas ORDER BY nombre').all()));
-
-app.post('/tiendas', (req, res) => {
-  const result = db.prepare('INSERT INTO tiendas (nombre) VALUES (?)').run(req.body.nombre);
-  res.status(201).json({ id: result.lastInsertRowid, nombre: req.body.nombre });
+// --- TIENDAS ---
+app.get('/tiendas', async (req, res) => {
+  const result = await pool.query('SELECT * FROM tiendas ORDER BY nombre');
+  res.json(result.rows);
 });
 
-app.put('/tiendas/:id', (req, res) => {
-  db.prepare('UPDATE tiendas SET nombre = ? WHERE id = ?').run(req.body.nombre, req.params.id);
-  res.json({ ok: true });
+// Ahora el ID lo manda el celular (ya creado)
+app.post('/tiendas', async (req, res) => {
+  const { id, nombre } = req.body;
+  await pool.query('INSERT INTO tiendas (id, nombre) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET nombre = EXCLUDED.nombre', [id, nombre]);
+  res.status(201).json({ id, nombre });
 });
 
-app.delete('/tiendas/:id', (req, res) => {
-  db.prepare('DELETE FROM productos WHERE tiendaId = ?').run(req.params.id);
-  db.prepare('DELETE FROM registros_dia WHERE tiendaId = ?').run(req.params.id);
-  db.prepare('DELETE FROM lista_compra WHERE tiendaId = ?').run(req.params.id);
-  db.prepare('DELETE FROM tiendas WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
+// --- PRODUCTOS ---
+app.get('/productos/:tiendaId', async (req, res) => {
+  const result = await pool.query('SELECT * FROM productos WHERE tiendaId = $1 ORDER BY seccion, nombre', [req.params.tiendaId]);
+  res.json(result.rows);
 });
 
-// Productos
-app.get('/productos/:tiendaId', (req, res) => {
-  res.json(db.prepare('SELECT * FROM productos WHERE tiendaId = ? ORDER BY seccion, nombre').all(req.params.tiendaId));
-});
-app.post('/productos', (req, res) => {
-  const { tiendaId, nombre, descripcion, precio, seccion, rutaImagen } = req.body;
-  db.prepare('INSERT INTO productos (tiendaId, nombre, descripcion, precio, seccion, rutaImagen) VALUES (?,?,?,?,?,?)')
-    .run(tiendaId, nombre, descripcion||'', precio, seccion||'', rutaImagen||null);
+app.post('/productos', async (req, res) => {
+  const { id, tiendaId, nombre, descripcion, precio, seccion, rutaImagen } = req.body;
+  await pool.query(
+    'INSERT INTO productos (id, tiendaId, nombre, descripcion, precio, seccion, rutaImagen) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET nombre=EXCLUDED.nombre, descripcion=EXCLUDED.descripcion, precio=EXCLUDED.precio, seccion=EXCLUDED.seccion, rutaImagen=EXCLUDED.rutaImagen', 
+    [id, tiendaId, nombre, descripcion || '', precio, seccion || '', rutaImagen || null]
+  );
   res.status(201).json({ ok: true });
 });
-app.put('/productos/:id', (req, res) => {
-  const { nombre, descripcion, precio, seccion, rutaImagen } = req.body;
-  db.prepare('UPDATE productos SET nombre=?, descripcion=?, precio=?, seccion=?, rutaImagen=? WHERE id=?')
-    .run(nombre, descripcion||'', precio, seccion||'', rutaImagen||null, req.params.id);
-  res.json({ ok: true });
-});
+
 app.delete('/productos/:id', async (req, res) => {
-  const producto = db.prepare('SELECT * FROM productos WHERE id = ?').get(req.params.id);
-  if (producto && producto.rutaImagen && producto.rutaImagen.includes('cloudinary')) {
+  const { id } = req.params;
+  const result = await pool.query('SELECT * FROM productos WHERE id = $1', [id]);
+  const producto = result.rows[0];
+  
+  if (producto && producto.rutaimagen && producto.rutaimagen.includes('cloudinary')) {
     try {
-      const urlPartes = producto.rutaImagen.split('/');
+      const urlPartes = producto.rutaimagen.split('/');
       const nombreConExtension = urlPartes[urlPartes.length - 1];
       const publicId = 'productos/' + nombreConExtension.split('.')[0];
       await cloudinary.uploader.destroy(publicId);
     } catch (err) {}
   }
-  db.prepare('DELETE FROM productos WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
-});
-
-// Registros
-app.get('/registros/:tiendaId', (req, res) => {
-  res.json(db.prepare('SELECT * FROM registros_dia WHERE tiendaId = ? ORDER BY fecha DESC, hora DESC').all(req.params.tiendaId));
-});
-app.post('/registros', (req, res) => {
-  const { tiendaId, fecha, hora, billetes, monedas, plataforma, resta, total } = req.body;
-  db.prepare('INSERT INTO registros_dia (tiendaId, fecha, hora, billetes, monedas, plataforma, resta, total) VALUES (?,?,?,?,?,?,?,?)')
-    .run(tiendaId, fecha, hora, billetes||0, monedas||0, plataforma||0, resta||100, total||0);
-  res.status(201).json({ ok: true });
-});
-app.delete('/registros/:id', (req, res) => {
-  db.prepare('DELETE FROM registros_dia WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
-});
-
-// Lista compras
-app.get('/lista_compras/:tiendaId', (req, res) => {
-  res.json(db.prepare('SELECT * FROM lista_compra WHERE tiendaId = ? ORDER BY fechaCreacion DESC').all(req.params.tiendaId));
-});
-app.post('/lista_compras', (req, res) => {
-  const { tiendaId, texto, fechaCreacion, ttlHoras } = req.body;
-  db.prepare('INSERT INTO lista_compra (tiendaId, texto, fechaCreacion, ttlHoras) VALUES (?,?,?,?)')
-    .run(tiendaId, texto, fechaCreacion, ttlHoras||24);
-  res.status(201).json({ ok: true });
-});
-app.delete('/lista_compras/:id', (req, res) => {
-  db.prepare('DELETE FROM lista_compra WHERE id = ?').run(req.params.id);
+  await pool.query('DELETE FROM productos WHERE id = $1', [id]);
   res.json({ ok: true });
 });
 
