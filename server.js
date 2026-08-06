@@ -26,13 +26,13 @@ const initDB = async () => {
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS tiendas (
-        id VARCHAR(36) PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
         nombre TEXT NOT NULL
       );
       
       CREATE TABLE IF NOT EXISTS productos (
-        id VARCHAR(36) PRIMARY KEY,
-        tiendaId VARCHAR(36) NOT NULL REFERENCES tiendas(id) ON DELETE CASCADE,
+        id SERIAL PRIMARY KEY,
+        tiendaId INTEGER NOT NULL REFERENCES tiendas(id) ON DELETE CASCADE,
         nombre TEXT NOT NULL,
         descripcion TEXT DEFAULT '',
         precio REAL NOT NULL,
@@ -41,8 +41,8 @@ const initDB = async () => {
       );
       
       CREATE TABLE IF NOT EXISTS registros_dia (
-        id VARCHAR(36) PRIMARY KEY,
-        tiendaId VARCHAR(36) NOT NULL,
+        id SERIAL PRIMARY KEY,
+        tiendaId INTEGER NOT NULL,
         fecha TEXT NOT NULL,
         hora TEXT NOT NULL,
         billetes REAL DEFAULT 0,
@@ -53,8 +53,8 @@ const initDB = async () => {
       );
       
       CREATE TABLE IF NOT EXISTS lista_compra (
-        id VARCHAR(36) PRIMARY KEY,
-        tiendaId VARCHAR(36) NOT NULL,
+        id SERIAL PRIMARY KEY,
+        tiendaId INTEGER NOT NULL,
         texto TEXT NOT NULL,
         fechaCreacion BIGINT NOT NULL,
         ttlHoras INTEGER DEFAULT 24
@@ -103,7 +103,6 @@ app.post('/registro', async (req, res) => {
       'INSERT INTO usuarios (nombreUsuario, contrasena, rol) VALUES ($1, $2, $3)',
       [nombreUsuario, contrasena, rol]
     );
-    // Devolver el usuario creado
     const result = await pool.query(
       'SELECT * FROM usuarios WHERE nombreUsuario = $1',
       [nombreUsuario]
@@ -141,18 +140,23 @@ app.get('/tiendas', async (req, res) => {
 });
 
 app.post('/tiendas', async (req, res) => {
-  const { id, nombre } = req.body;
-  await pool.query(
-    'INSERT INTO tiendas (id, nombre) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET nombre = EXCLUDED.nombre',
-    [id, nombre]
+  const { nombre } = req.body;
+  const result = await pool.query(
+    'INSERT INTO tiendas (nombre) VALUES ($1) RETURNING *',
+    [nombre]
   );
-  res.status(201).json({ id, nombre });
+  res.status(201).json(result.rows[0]);
+});
+
+app.put('/tiendas/:id', async (req, res) => {
+  const { id } = req.params;
+  const { nombre } = req.body;
+  await pool.query('UPDATE tiendas SET nombre = $1 WHERE id = $2', [nombre, id]);
+  res.json({ ok: true });
 });
 
 app.delete('/tiendas/:id', async (req, res) => {
-  const { id } = req.params;
-  // En cascada se eliminarán productos, registros y lista por las FK
-  await pool.query('DELETE FROM tiendas WHERE id = $1', [id]);
+  await pool.query('DELETE FROM tiendas WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
 
@@ -166,19 +170,13 @@ app.get('/productos/:tiendaId', async (req, res) => {
 });
 
 app.post('/productos', async (req, res) => {
-  const { id, tiendaId, nombre, descripcion, precio, seccion, rutaImagen } = req.body;
-  await pool.query(
-    `INSERT INTO productos (id, tiendaId, nombre, descripcion, precio, seccion, rutaImagen)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)
-     ON CONFLICT (id) DO UPDATE SET
-       nombre = EXCLUDED.nombre,
-       descripcion = EXCLUDED.descripcion,
-       precio = EXCLUDED.precio,
-       seccion = EXCLUDED.seccion,
-       rutaImagen = EXCLUDED.rutaImagen`,
-    [id, tiendaId, nombre, descripcion || '', precio, seccion || '', rutaImagen || null]
+  const { tiendaId, nombre, descripcion, precio, seccion, rutaImagen } = req.body;
+  const result = await pool.query(
+    `INSERT INTO productos (tiendaId, nombre, descripcion, precio, seccion, rutaImagen)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    [tiendaId, nombre, descripcion || '', precio, seccion || '', rutaImagen || null]
   );
-  res.status(201).json({ ok: true });
+  res.status(201).json(result.rows[0]);
 });
 
 app.put('/productos/:id', async (req, res) => {
@@ -220,21 +218,13 @@ app.get('/registros/:tiendaId', async (req, res) => {
 });
 
 app.post('/registros', async (req, res) => {
-  const { id, tiendaId, fecha, hora, billetes, monedas, plataforma, resta, total } = req.body;
-  await pool.query(
-    `INSERT INTO registros_dia (id, tiendaId, fecha, hora, billetes, monedas, plataforma, resta, total)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-     ON CONFLICT (id) DO UPDATE SET
-       fecha = EXCLUDED.fecha,
-       hora = EXCLUDED.hora,
-       billetes = EXCLUDED.billetes,
-       monedas = EXCLUDED.monedas,
-       plataforma = EXCLUDED.plataforma,
-       resta = EXCLUDED.resta,
-       total = EXCLUDED.total`,
-    [id, tiendaId, fecha, hora, billetes || 0, monedas || 0, plataforma || 0, resta || 100, total || 0]
+  const { tiendaId, fecha, hora, billetes, monedas, plataforma, resta, total } = req.body;
+  const result = await pool.query(
+    `INSERT INTO registros_dia (tiendaId, fecha, hora, billetes, monedas, plataforma, resta, total)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [tiendaId, fecha, hora, billetes || 0, monedas || 0, plataforma || 0, resta || 100, total || 0]
   );
-  res.status(201).json({ ok: true });
+  res.status(201).json(result.rows[0]);
 });
 
 app.delete('/registros/:id', async (req, res) => {
@@ -252,16 +242,13 @@ app.get('/lista_compras/:tiendaId', async (req, res) => {
 });
 
 app.post('/lista_compras', async (req, res) => {
-  const { id, tiendaId, texto, fechaCreacion, ttlHoras } = req.body;
-  await pool.query(
-    `INSERT INTO lista_compra (id, tiendaId, texto, fechaCreacion, ttlHoras)
-     VALUES ($1,$2,$3,$4,$5)
-     ON CONFLICT (id) DO UPDATE SET
-       texto = EXCLUDED.texto,
-       ttlHoras = EXCLUDED.ttlHoras`,
-    [id, tiendaId, texto, fechaCreacion, ttlHoras || 24]
+  const { tiendaId, texto, fechaCreacion, ttlHoras } = req.body;
+  const result = await pool.query(
+    `INSERT INTO lista_compra (tiendaId, texto, fechaCreacion, ttlHoras)
+     VALUES ($1,$2,$3,$4) RETURNING *`,
+    [tiendaId, texto, fechaCreacion, ttlHoras || 24]
   );
-  res.status(201).json({ ok: true });
+  res.status(201).json(result.rows[0]);
 });
 
 app.delete('/lista_compras/:id', async (req, res) => {
