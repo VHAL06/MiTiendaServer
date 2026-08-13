@@ -1452,7 +1452,7 @@
       "publicId": "productos/cd8jnsio8q5peajd03va",
       "subido": true,
       "eliminado": false,
-      "fechaCreacion": 1786414497960,
+      "fechaCreacion": 1786564264968,
       "fechaEdicion": 1786564264968,
       "marca": "Windsor"
     },
@@ -1533,6 +1533,71 @@
       "fechaCreacion": 1786567528122,
       "fechaEdicion": 1786567528122,
       "marca": "Kelloggs"
+    },
+    {
+      "id": "ab413f0f-3e91-4a5c-80d5-ff4a5e6f2a08",
+      "nombre": "Coca Original De 600",
+      "precio": 7,
+      "descripcion": "",
+      "seccion": "Gaseosas",
+      "publicId": "productos/pdmjnhpigxcfrnd8gjl6",
+      "subido": true,
+      "eliminado": false,
+      "fechaCreacion": 1786581699520,
+      "fechaEdicion": 1786581699520,
+      "marca": "Coca-Cola"
+    },
+    {
+      "id": "1a08aeed-bcbd-445e-b450-da2a75b768d7",
+      "nombre": "Cocacola De 3 Litros",
+      "precio": 20,
+      "descripcion": "",
+      "seccion": "Gaseosas",
+      "publicId": "productos/aes54x94aeygntnbhw4w",
+      "subido": true,
+      "eliminado": false,
+      "fechaCreacion": 1786581465480,
+      "fechaEdicion": 1786581465480,
+      "marca": "Coca-Cola"
+    },
+    {
+      "id": "1390fa1a-270f-4573-96f4-13b558cae77d",
+      "nombre": "Eprite De 3 Litro",
+      "precio": 20,
+      "descripcion": "",
+      "seccion": "Gaseosas",
+      "publicId": "productos/c5akjqpzyqrefzpw3qeq",
+      "subido": true,
+      "eliminado": false,
+      "fechaCreacion": 1786581595750,
+      "fechaEdicion": 1786581595750,
+      "marca": "Sprite"
+    },
+    {
+      "id": "9e4f5af3-6bae-47f2-93fa-9b455097f90b",
+      "nombre": "Simba De 2 Litros",
+      "precio": 11,
+      "descripcion": "",
+      "seccion": "Gaseosas",
+      "publicId": "productos/lzvx6jxzaycrnnz8nynh",
+      "subido": true,
+      "eliminado": false,
+      "fechaCreacion": 1786581637764,
+      "fechaEdicion": 1786581637764,
+      "marca": "Simba"
+    },
+    {
+      "id": "89c9c2b6-d31a-4a77-a430-6fb5d34fd4b6",
+      "nombre": "Peques",
+      "precio": 4.5,
+      "descripcion": "",
+      "seccion": "Gaseosas",
+      "publicId": "productos/dubuy0j4els7yalccupz",
+      "subido": true,
+      "eliminado": false,
+      "fechaCreacion": 1786581822221,
+      "fechaEdicion": 1786581822221,
+      "marca": "Peques"
     }
   ],
   "caja": [
@@ -1545,50 +1610,32 @@
       "resta": 100,
       "subido": true,
       "fechaCreacion": 1786499714078
+    },
+    {
+      "id": "9c1cb7be-e5c7-4811-ab1e-512a4851f154",
+      "fecha": "2026-08-12",
+      "billetes": 310,
+      "monedas": 7,
+      "qr": 345,
+      "resta": 304.5,
+      "subido": true,
+      "fechaCreacion": 1786589447403
     }
   ],
   "lista": [
     {
-      "id": "c8150c6b-b1a8-42f8-b7b4-dfef46db3532",
-      "texto": "Pedir Avena La suprema ",
+      "id": "8575ffac-6225-48a5-bbc7-8a8c8627dd1d",
+      "texto": "comprar mas cigarro",
       "completado": false,
       "subido": true,
-      "fechaCreacion": 1786566138319
+      "fechaCreacion": 1786416950035
     },
     {
-      "id": "8646c5de-f4d0-4c7a-b4c3-657a0ac35404",
-      "texto": "Comprar Chorizos en lata",
-      "completado": false,
-      "subido": true,
-      "fechaCreacion": 1786566110599
-    },
-    {
-      "id": "dc10fe75-33f8-4a14-a8ee-61fa9960f9cd",
-      "texto": "Comprar Biandada",
-      "completado": false,
-      "subido": true,
-      "fechaCreacion": 1786566096912
-    },
-    {
-      "id": "e9d3f455-a2f9-4825-b5af-d428bfaa02e2",
-      "texto": "Comprar más Takis",
+      "id": "6b5c36d9-2c37-4b24-b808-de2dc461f69e",
+      "texto": "Comprar mas mermelada",
       "completado": true,
       "subido": true,
-      "fechaCreacion": 1786566375545
-    },
-    {
-      "id": "dd2851b5-d63b-4ad7-8578-0eeee812af57",
-      "texto": "Buscaron Plátano maduro",
-      "completado": true,
-      "subido": true,
-      "fechaCreacion": 1786566344193
-    },
-    {
-      "id": "a5e74e9f-00ff-43e8-8dc7-6f216a16df07",
-      "texto": "Comprar arroz Brillante ",
-      "completado": true,
-      "subido": true,
-      "fechaCreacion": 1786566147128
+      "fechaCreacion": 1786416939135
     }
   ]
 }
